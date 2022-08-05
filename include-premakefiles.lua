@@ -17,6 +17,8 @@ local function GenerateProjectFooter()
     premake.pop("EndProject")
 end
 
+
+
 local function GetTopLevelFolderFromFile(filepath)
     startpos, endpos = string.find(filepath, "/")
     if startpos == nil then
@@ -58,6 +60,8 @@ local function BuildHeirarchy(file_list)
     return output
 end
 
+
+
 local function GenerateProjects(projectName, filetree, projectTypeGUID, partial_path, wks)
     -- Generate top level for this depth
     GenerateProjectHeader(projectTypeGUID, projectName, os.uuid(projectName))
@@ -89,19 +93,6 @@ local function GenerateProjects(projectName, filetree, projectTypeGUID, partial_
     end
 end
 
--- local function GenerateGroupTreeEntries(filetree, root_path, tree)
---     if not type(filetree) == "table" then
---         return
---     end
-
---     for folder, subtree in pairs(filetree) do
---         if type(subtree) == "table" then
---             premake.tree.add(tree, root_path .. folder, { ["uuid"] = os.uuid(folder) })
---             GenerateGroupTreeEntries(subtree, root_path .. folder .. "/", tree)
---         end
---     end
--- end
-
 local function GenerateGlobalSectionValues(filetree)
     local nodeList = {}
 
@@ -124,38 +115,39 @@ local function GenerateGlobalSectionValues(filetree)
     return nodeList
 end
 
+local function GenerateGlobals(filetree, root_project_name)
+    premake.push("Global")
+    premake.push("GlobalSection(NestedProjects) = preSolution")
+
+    local root_nodes = GenerateGlobalSectionValues(filetree)
+    for _, id in ipairs(root_nodes) do
+        premake.w("{" .. id .. "} = {" .. os.uuid(root_project_name) .. "}")
+    end
+
+    premake.pop("EndGlobalSection")
+    premake.pop("EndGlobal")
+end
+
 premake.override(premake.vstudio.sln2005, "projects", function(base, wks)
     if wks.include_premakefiles and #wks.include_premakefiles > 0 then
         local solution_folder_GUID = "{2150E333-8FDC-42A3-9474-1A3956D46DE8}" -- See https://www.codeproject.com/Reference/720512/List-of-Visual-Studio-Project-Type-GUIDs
+        local root_project_name = "Premake Files"
 
-        -- For each path, check if its in a subfolder,
-        -- for each subfolder, generate a solution items 
-        -- project for it and add the files in that 
-        -- subfolder to it.
+        -- Build a file system tree structure from the list of files
+        local structure = BuildHeirarchy(wks.include_premakefiles)
+
+        -- Using this structure, walk the tree and create a new project
+        -- entry per node, and append the leaves as files in its parent
+        -- project
+        GenerateProjects(root_project_name, structure, solution_folder_GUID, "", wks)
 
         -- For each generated project, emit the "globals"
-        -- reference for it to structure the folders properly
-
-        
-        local structure = BuildHeirarchy(wks.include_premakefiles)
-        GenerateProjects("Premake Files", structure, solution_folder_GUID, "", wks)
-
-        premake.push("Global")
-        premake.push("GlobalSection(NestedProjects) = preSolution")
-
-        local root_nodes = GenerateGlobalSectionValues(structure)
-        for _, id in ipairs(root_nodes) do
-            premake.w("{" .. id .. "} = {" .. os.uuid("Premake Files") .. "}")
-        end
-
-        premake.pop("EndGlobalSection")
-        premake.pop("EndGlobal")
-
-        -- print(table.tostring(structure, 10))
-        
-        -- GenerateGroupTreeEntries(structure, "/", premake.workspace.grouptree(wks))
-        -- print(table.tostring(premake.workspace.grouptree(wks), 5))
+        -- reference for it to nest the folders properly
+        GenerateGlobals(structure, root_project_name)
 
     end
+
+    -- Call the base function to continue to perform the rest of the 
+    -- original functionality of this overriden call
     base(wks)
 end)
